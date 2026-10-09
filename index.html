@@ -3,27 +3,510 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>모텔 수익률 계산기</title>
+  <title>스마트 모텔 수익률 계산기</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   <script src="https://unpkg.com/lucide-react@0.263.1/dist/umd/lucide-react.min.js"></script>
 </head>
-<body class="bg-white">
+<body class="bg-white min-h-screen text-slate-800">
   <div id="root"></div>
+
   <script type="text/babel">
-    // 앱이 정상 작동하도록 기본 컨테이너 구성
-    function App() {
+    const { useState, useEffect } = React;
+
+    function MotelCalculator() {
+      // 1. 기본 정보
+      const [region, setRegion] = useState('서울/강남');
+      const [roomCount, setRoomCount] = useState(30);
+
+      // 2. 매출 조건 (숙박)
+      const [weekdayDays, setWeekdayDays] = useState(22);
+      const [weekdayPrice, setWeekdayPrice] = useState(60000);
+      const [weekendDays, setWeekendDays] = useState(8);
+      const [weekendPrice, setWeekendPrice] = useState(90000);
+
+      // 3. 매출 조건 (대실)
+      const [hasRent, setHasRent] = useState(true);
+      const [rentCountPerDay, setRentCountPerDay] = useState(15);
+      const [rentPrice, setRentPrice] = useState(30000);
+
+      // 4. 총 사업비
+      const [purchasePrice, setPurchasePrice] = useState(4000000000); // 40억
+      const [constructionPerRoom, setConstructionPerRoom] = useState(20000000); // 2천만
+      const [elevatorCost, setElevatorCost] = useState(50000000); // 5천만
+      const [otherAcquisitionCosts, setOtherAcquisitionCosts] = useState(100000000); // 1억
+
+      // 5. 운영 방식 및 경비
+      const [isConsigned, setIsConsigned] = useState(true);
+      const [expenseInputType, setExpenseInputType] = useState('percent'); // 'percent' | 'fixed'
+      const [expensePercent, setExpensePercent] = useState(12);
+      const [fixedOtherExpense, setFixedOtherExpense] = useState(5000000);
+
+      // 6. 금융 비용
+      const [loanRatio, setLoanRatio] = useState(70); // 사업비 대비 대출 비율 %
+      const [annualInterestRate, setAnnualInterestRate] = useState(6.0); // 연 이자율 %
+
+      // 저장된 기본 정보 리스트
+      const [savedConfigs, setSavedConfigs] = useState([]);
+      const [displayUnit, setDisplayUnit] = useState('krw'); // 'krw' | 'eon'
+
+      // 천단위 콤마 포맷터
+      const formatNumber = (val) => {
+        if (val === undefined || val === null || isNaN(val)) return '0';
+        return val.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+      };
+
+      const parseFormattedNumber = (str) => {
+        const num = parseInt(str.replace(/,/g, ''), 10);
+        return isNaN(num) ? 0 : num;
+      };
+
+      // 총 공사비 및 총 사업비 계산
+      const totalConstructionCost = roomCount * constructionPerRoom;
+      const totalProjectCost = purchasePrice + totalConstructionCost + elevatorCost + otherAcquisitionCosts;
+
+      // 대출금 및 월 금융비용
+      const loanAmount = totalProjectCost * (loanRatio / 100);
+      const monthlyInterestExpense = (loanAmount * (annualInterestRate / 100)) / 12;
+
+      // 인건비 및 위탁 수수료
+      const consignmentFee = isConsigned ? roomCount * 165000 : 0;
+      const laborCost = isConsigned ? 15700000 : 7000000;
+
+      // 100% 가동 시 월 매출 계산
+      const monthlyLodgingRevenue100 = (weekdayDays * weekdayPrice + weekendDays * weekendPrice) * roomCount;
+      const monthlyRentRevenue100 = hasRent ? rentCountPerDay * rentPrice * 30 : 0;
+      const totalMonthlyRevenue100 = monthlyLodgingRevenue100 + monthlyRentRevenue100;
+
+      // 시나리오별 수익 계산 함수
+      const calculateScenario = (occupancyRate) => {
+        const currentRevenue = totalMonthlyRevenue100 * (occupancyRate / 100);
+        const otherExpense = expenseInputType === 'percent'
+          ? currentRevenue * (expensePercent / 100)
+          : fixedOtherExpense;
+
+        const totalOperatingExpense = consignmentFee + laborCost + otherExpense;
+        const operatingProfit = currentRevenue - totalOperatingExpense;
+        const netProfit = operatingProfit - monthlyInterestExpense;
+        const annualNetProfit = netProfit * 12;
+        const roi = totalProjectCost > 0 ? (annualNetProfit / totalProjectCost) * 100 : 0;
+
+        return {
+          occupancyRate,
+          revenue: currentRevenue,
+          operatingExpense: totalOperatingExpense,
+          operatingProfit,
+          monthlyInterest: monthlyInterestExpense,
+          netProfit,
+          annualNetProfit,
+          roi
+        };
+      };
+
+      const scenario100 = calculateScenario(100);
+      const scenario90 = calculateScenario(90);
+      const scenario85 = calculateScenario(85);
+
+      const handleSaveConfig = () => {
+        const newConfig = {
+          id: Date.now(),
+          date: new Date().toLocaleDateString(),
+          region,
+          roomCount,
+          totalProjectCost,
+          isConsigned,
+          netProfit100: scenario100.netProfit,
+          roi100: scenario100.roi,
+          state: {
+            region, roomCount, weekdayDays, weekdayPrice, weekendDays, weekendPrice,
+            hasRent, rentCountPerDay, rentPrice, purchasePrice, constructionPerRoom,
+            elevatorCost, otherAcquisitionCosts, isConsigned, expenseInputType,
+            expensePercent, fixedOtherExpense, loanRatio, annualInterestRate
+          }
+        };
+        setSavedConfigs([newConfig, ...savedConfigs]);
+      };
+
+      const handleLoadConfig = (config) => {
+        const s = config.state;
+        setRegion(s.region);
+        setRoomCount(s.roomCount);
+        setWeekdayDays(s.weekdayDays);
+        setWeekdayPrice(s.weekdayPrice);
+        setWeekendDays(s.weekendDays);
+        setWeekendPrice(s.weekendPrice);
+        setHasRent(s.hasRent);
+        setRentCountPerDay(s.rentCountPerDay);
+        setRentPrice(s.rentPrice);
+        setPurchasePrice(s.purchasePrice);
+        setConstructionPerRoom(s.constructionPerRoom);
+        setElevatorCost(s.elevatorCost);
+        setOtherAcquisitionCosts(s.otherAcquisitionCosts);
+        setIsConsigned(s.isConsigned);
+        setExpenseInputType(s.expenseInputType);
+        setExpensePercent(s.expensePercent);
+        setFixedOtherExpense(s.fixedOtherExpense);
+        setLoanRatio(s.loanRatio);
+        setAnnualInterestRate(s.annualInterestRate);
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      };
+
+      const formatCostText = (amount) => {
+        if (displayUnit === 'eon') {
+          return (amount / 100000000).toFixed(2) + ' 억원';
+        }
+        return formatNumber(Math.round(amount)) + ' 원';
+      };
+
       return (
-        <div class="p-8 text-center">
-          <h1 class="text-2xl font-bold mb-4">모텔 수익률 계산기</h1>
-          <p class="text-gray-600">계산기 시스템이 성공적으로 연결되었습니다.</p>
+        <div class="max-w-4xl mx-auto px-4 py-8 bg-white">
+          <header class="mb-8 border-b pb-4 flex justify-between items-end">
+            <div>
+              <h1 class="text-3xl font-extrabold text-slate-900 tracking-tight">스마트 모텔 수익률 계산기</h1>
+              <p class="text-slate-500 text-sm mt-1">가동률별(100%, 90%, 85%) 순수익 및 투자 수익률 정밀 분석</p>
+            </div>
+            <button
+              onClick={() => setDisplayUnit(displayUnit === 'krw' ? 'eon' : 'krw')}
+              class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold border border-slate-300 transition"
+            >
+              단위: {displayUnit === 'krw' ? '원 (₩)' : '억원 (億)'}
+            </button>
+          </header>
+
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+            {/* 기본 정보 및 매출 설정 */}
+            <div class="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-4">
+              <h2 class="text-lg font-bold text-slate-900 flex items-center gap-2 border-b pb-2">
+                <span>📍 1. 기본 정보 및 매출 조건</span>
+              </h2>
+
+              <div class="grid grid-cols-2 gap-3">
+                <div>
+                  <label class="block text-xs font-semibold text-slate-600 mb-1">지역명</label>
+                  <input
+                    type="text"
+                    value={region}
+                    onChange={(e) => setRegion(e.target.value)}
+                    class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                  />
+                </div>
+                <div>
+                  <label class="block text-xs font-semibold text-slate-600 mb-1">객실 수</label>
+                  <input
+                    type="number"
+                    value={roomCount}
+                    onChange={(e) => setRoomCount(Number(e.target.value))}
+                    class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                  />
+                </div>
+              </div>
+
+              {/* 숙박 매출 */}
+              <div class="space-y-2 pt-2 border-t">
+                <span class="text-xs font-bold text-slate-700">숙박 매출 (월 기준)</span>
+                <div class="grid grid-cols-2 gap-3">
+                  <div class="bg-slate-50 p-2.5 rounded-xl border border-slate-200">
+                    <span class="block text-xs text-slate-500 mb-1">평일 (일수/객단가)</span>
+                    <div class="flex items-center gap-1">
+                      <input
+                        type="number"
+                        value={weekdayDays}
+                        onChange={(e) => setWeekdayDays(Number(e.target.value))}
+                        class="w-12 px-1 py-1 text-center border rounded text-xs"
+                      />
+                      <span class="text-xs">일</span>
+                      <input
+                        type="text"
+                        value={formatNumber(weekdayPrice)}
+                        onChange={(e) => setWeekdayPrice(parseFormattedNumber(e.target.value))}
+                        class="w-full px-2 py-1 text-right border rounded text-xs"
+                      />
+                    </div>
+                  </div>
+                  <div class="bg-slate-50 p-2.5 rounded-xl border border-slate-200">
+                    <span class="block text-xs text-slate-500 mb-1">주말 (일수/객단가)</span>
+                    <div class="flex items-center gap-1">
+                      <input
+                        type="number"
+                        value={weekendDays}
+                        onChange={(e) => setWeekendDays(Number(e.target.value))}
+                        class="w-12 px-1 py-1 text-center border rounded text-xs"
+                      />
+                      <span class="text-xs">일</span>
+                      <input
+                        type="text"
+                        value={formatNumber(weekendPrice)}
+                        onChange={(e) => setWeekendPrice(parseFormattedNumber(e.target.value))}
+                        class="w-full px-2 py-1 text-right border rounded text-xs"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* 대실 매출 */}
+              <div class="space-y-2 pt-2 border-t">
+                <div class="flex justify-between items-center">
+                  <span class="text-xs font-bold text-slate-700">대실 매출 조건</span>
+                  <label class="flex items-center gap-1.5 cursor-pointer text-xs text-indigo-600 font-semibold">
+                    <input
+                      type="checkbox"
+                      checked={hasRent}
+                      onChange={(e) => setHasRent(e.target.checked)}
+                      class="rounded text-indigo-600 focus:ring-indigo-500"
+                    />
+                    대실 운용
+                  </label>
+                </div>
+                {hasRent && (
+                  <div class="bg-indigo-50/50 p-3 rounded-xl border border-indigo-100 grid grid-cols-2 gap-3">
+                    <div>
+                      <label class="block text-xs text-slate-600 mb-1">대실 수 / 하루</label>
+                      <input
+                        type="number"
+                        value={rentCountPerDay}
+                        onChange={(e) => setRentCountPerDay(Number(e.target.value))}
+                        class="w-full px-2 py-1.5 border border-slate-300 rounded text-xs text-center"
+                      />
+                    </div>
+                    <div>
+                      <label class="block text-xs text-slate-600 mb-1">대실 객단가</label>
+                      <input
+                        type="text"
+                        value={formatNumber(rentPrice)}
+                        onChange={(e) => setRentPrice(parseFormattedNumber(e.target.value))}
+                        class="w-full px-2 py-1.5 border border-slate-300 rounded text-xs text-right"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* 총 사업비 및 운영 경비 */}
+            <div class="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-4">
+              <h2 class="text-lg font-bold text-slate-900 flex items-center gap-2 border-b pb-2">
+                <span>🏢 2. 사업비 & 경비 설정</span>
+              </h2>
+
+              <div class="space-y-2">
+                <span class="text-xs font-bold text-slate-700">총 사업비 구성</span>
+                <div class="grid grid-cols-2 gap-2 text-xs">
+                  <div>
+                    <label class="block text-slate-500 mb-0.5">매입가</label>
+                    <input
+                      type="text"
+                      value={formatNumber(purchasePrice)}
+                      onChange={(e) => setPurchasePrice(parseFormattedNumber(e.target.value))}
+                      class="w-full px-2 py-1.5 border rounded text-right"
+                    />
+                  </div>
+                  <div>
+                    <label class="block text-slate-500 mb-0.5">객실당 공사비</label>
+                    <input
+                      type="text"
+                      value={formatNumber(constructionPerRoom)}
+                      onChange={(e) => setConstructionPerRoom(parseFormattedNumber(e.target.value))}
+                      class="w-full px-2 py-1.5 border rounded text-right"
+                    />
+                  </div>
+                  <div>
+                    <label class="block text-slate-500 mb-0.5">엘리베이터 비용</label>
+                    <input
+                      type="text"
+                      value={formatNumber(elevatorCost)}
+                      onChange={(e) => setElevatorCost(parseFormattedNumber(e.target.value))}
+                      class="w-full px-2 py-1.5 border rounded text-right"
+                    />
+                  </div>
+                  <div>
+                    <label class="block text-slate-500 mb-0.5">기타 제반 비용</label>
+                    <input
+                      type="text"
+                      value={formatNumber(otherAcquisitionCosts)}
+                      onChange={(e) => setOtherAcquisitionCosts(parseFormattedNumber(e.target.value))}
+                      class="w-full px-2 py-1.5 border rounded text-right"
+                    />
+                  </div>
+                </div>
+                <div class="bg-slate-100 p-2 rounded-lg text-right font-bold text-xs text-slate-800">
+                  총 사업비: {formatCostText(totalProjectCost)}
+                </div>
+              </div>
+
+              {/* 금융 비용 */}
+              <div class="pt-2 border-t space-y-2">
+                <span class="text-xs font-bold text-slate-700">금융 비용 (대출 조건)</span>
+                <div class="grid grid-cols-2 gap-2 text-xs">
+                  <div>
+                    <label class="block text-slate-500 mb-0.5">대출 비율 (%)</label>
+                    <input
+                      type="number"
+                      value={loanRatio}
+                      onChange={(e) => setLoanRatio(Number(e.target.value))}
+                      class="w-full px-2 py-1.5 border rounded text-center"
+                    />
+                  </div>
+                  <div>
+                    <label class="block text-slate-500 mb-0.5">연 이자율 (%)</label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      value={annualInterestRate}
+                      onChange={(e) => setAnnualInterestRate(Number(e.target.value))}
+                      class="w-full px-2 py-1.5 border rounded text-center"
+                    />
+                  </div>
+                </div>
+                <div class="text-xs text-slate-500 text-right">
+                  월 이자 지출: <span class="font-bold text-red-600">{formatCostText(monthlyInterestExpense)}</span>
+                </div>
+              </div>
+
+              {/* 운영 방식 & 기타 경비 */}
+              <div class="pt-2 border-t space-y-2">
+                <div class="flex justify-between items-center">
+                  <span class="text-xs font-bold text-slate-700">운영 방식</span>
+                  <button
+                    onClick={() => setIsConsigned(!isConsigned)}
+                    class={`px-3 py-1 rounded-full text-xs font-bold transition ${
+                      isConsigned ? 'bg-indigo-600 text-white' : 'bg-slate-200 text-slate-700'
+                    }`}
+                  >
+                    {isConsigned ? '위탁 운영 방식' : '직접 운영 방식'}
+                  </button>
+                </div>
+
+                <div class="bg-slate-50 p-2 rounded-lg text-xs space-y-1 text-slate-600">
+                  <div>인건비: {isConsigned ? '15,700,000 원 (위탁)' : '7,000,000 원 (직접)'}</div>
+                  <div>위탁 수수료: {isConsigned ? formatNumber(consignmentFee) + ' 원' : '0 원'}</div>
+                </div>
+
+                <div class="pt-1">
+                  <label class="block text-xs font-semibold text-slate-600 mb-1">기타 제반 경비 계산 방식</label>
+                  <div class="flex items-center gap-2 mb-2">
+                    <button
+                      onClick={() => setExpenseInputType('percent')}
+                      class={`px-2 py-1 text-xs rounded border ${
+                        expenseInputType === 'percent' ? 'bg-indigo-50 border-indigo-500 text-indigo-700 font-bold' : 'bg-white'
+                      }`}
+                    >
+                      매출 대비 %
+                    </button>
+                    <button
+                      onClick={() => setExpenseInputType('fixed')}
+                      class={`px-2 py-1 text-xs rounded border ${
+                        expenseInputType === 'fixed' ? 'bg-indigo-50 border-indigo-500 text-indigo-700 font-bold' : 'bg-white'
+                      }`}
+                    >
+                      고정 금액
+                    </button>
+                  </div>
+                  {expenseInputType === 'percent' ? (
+                    <div class="flex items-center gap-2">
+                      <input
+                        type="number"
+                        value={expensePercent}
+                        onChange={(e) => setExpensePercent(Number(e.target.value))}
+                        class="w-20 px-2 py-1 border rounded text-center text-xs"
+                      />
+                      <span class="text-xs text-slate-600">% (수도광열, 세탁, 비품, 통신 등 포괄)</span>
+                    </div>
+                  ) : (
+                    <input
+                      type="text"
+                      value={formatNumber(fixedOtherExpense)}
+                      onChange={(e) => setFixedOtherExpense(parseFormattedNumber(e.target.value))}
+                      class="w-full px-2 py-1 border rounded text-right text-xs"
+                    />
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* 가동률 시나리오 분석 결과 */}
+          <section class="bg-slate-900 text-white rounded-2xl p-6 shadow-xl mb-8">
+            <div class="flex justify-between items-center mb-6 border-b border-slate-800 pb-4">
+              <div>
+                <h2 class="text-xl font-bold">📊 가동률별 수익성 분석</h2>
+                <p class="text-xs text-slate-400 mt-0.5">매출액, 경비, 금융비용을 차감한 순수익 표</p>
+              </div>
+              <button
+                onClick={handleSaveConfig}
+                class="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-xl text-xs font-bold transition shadow"
+              >
+                💾 현재 조건 저장하기
+              </button>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {[scenario100, scenario90, scenario85].map((sc, idx) => (
+                <div key={idx} class="bg-slate-800/80 border border-slate-700 rounded-xl p-4 flex flex-col justify-between">
+                  <div>
+                    <div class="flex justify-between items-center mb-3">
+                      <span class="text-sm font-extrabold text-indigo-400">가동률 {sc.occupancyRate}%</span>
+                      <span class="text-xs bg-slate-700 text-slate-300 px-2 py-0.5 rounded-full">
+                        ROI: <strong class="text-emerald-400">{sc.roi.toFixed(1)}%</strong>
+                      </span>
+                    </div>
+                    <div class="space-y-2 text-xs border-t border-slate-700/50 pt-3">
+                      <div class="flex justify-between text-slate-400">
+                        <span>월 매출액:</span>
+                        <span class="text-slate-200">{formatCostText(sc.revenue)}</span>
+                      </div>
+                      <div class="flex justify-between text-slate-400">
+                        <span>월 운영경비:</span>
+                        <span class="text-slate-200">{formatCostText(sc.operatingExpense)}</span>
+                      </div>
+                      <div class="flex justify-between text-slate-400">
+                        <span>월 대출이자:</span>
+                        <span class="text-red-400">-{formatCostText(sc.monthlyInterest)}</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="mt-4 pt-3 border-t border-slate-700">
+                    <span class="block text-xs text-slate-400">월 순수익</span>
+                    <span class="text-lg font-black text-emerald-400">{formatCostText(sc.netProfit)}</span>
+                    <span class="block text-xs text-slate-500 mt-1">연 순수익: {formatCostText(sc.annualNetProfit)}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          {/* 저장된 기본 정보 리스트 */}
+          {savedConfigs.length > 0 && (
+            <section class="bg-slate-50 border border-slate-200 rounded-2xl p-5">
+              <h3 class="text-md font-bold text-slate-800 mb-3">📁 저장된 기본 정보 목록</h3>
+              <div class="space-y-2">
+                {savedConfigs.map((cfg) => (
+                  <div key={cfg.id} class="bg-white border border-slate-200 rounded-xl p-3 flex justify-between items-center hover:border-indigo-300 transition">
+                    <div>
+                      <div class="text-sm font-bold text-slate-900">{cfg.region} ({cfg.roomCount}실)</div>
+                      <div class="text-xs text-slate-500">
+                        저장일: {cfg.date} | 총 사업비: {formatCostText(cfg.totalProjectCost)}
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => handleLoadConfig(cfg)}
+                      class="px-3 py-1.5 bg-indigo-50 text-indigo-600 rounded-lg text-xs font-bold hover:bg-indigo-100 transition"
+                    >
+                      불러오기 🔗
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
         </div>
       );
     }
+
     const root = ReactDOM.createRoot(document.getElementById('root'));
-    root.render(<App />);
+    root.render(<MotelCalculator />);
   </script>
 </body>
 </html>
